@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>StudyPulse — Discord Study Tracker & Analytics Dashboard</title>
-  <meta name="description" content="Real-time Discord study voice channel tracker, live analytics, daily study totals, server leaderboards, and focus insights.">
+  <title>StudyPulse — Personalized Discord Study Analytics & Channel Tracker</title>
+  <meta name="description" content="Personalized Discord study voice tracker, daily, weekly, monthly time per channel, individual focus trends, and streaks.">
   
   <!-- Modern Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -36,23 +36,31 @@
         </div>
         <div class="brand-text">
           <span class="brand-name">Study<span class="gradient-text">Pulse</span></span>
-          <span class="brand-subtitle">Discord Voice Analytics</span>
+          <span class="brand-subtitle">Personalized Focus Analytics</span>
         </div>
       </div>
 
       <div class="nav-status">
-        <div class="status-indicator">
-          <span class="pulse-dot"></span>
-          <span class="status-text" id="voice-connection-status">Live Tracking Active</span>
+        <!-- Member Selector in Nav -->
+        <div class="member-selector-group">
+          <label for="nav-user-select" class="selector-label">👤 Member:</label>
+          <select id="nav-user-select" class="member-select" aria-label="Select study member">
+            <option value="">Loading members...</option>
+          </select>
         </div>
-        <button class="btn btn-secondary btn-sm" id="btn-bot-guide">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-            <path d="M12 17h.01"/>
+
+        <button class="btn btn-secondary btn-sm" id="btn-copy-link" title="Copy Direct Link to this Profile">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
           </svg>
-          Bot Commands
+          Share
         </button>
+
+        <button class="btn btn-secondary btn-sm" id="btn-bot-guide">
+          🤖 Commands
+        </button>
+
         <button class="btn btn-primary btn-sm" id="btn-refresh" title="Refresh Live Data">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin-on-click">
             <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
@@ -68,251 +76,233 @@
 
   <!-- Main Content Layout -->
   <main class="main-container" id="dashboard-content">
-    
-    <!-- Hero Banner & Title -->
-    <section class="hero-section" id="hero-overview">
-      <div class="hero-header">
-        <div>
-          <div class="badge-tag">Community Focus Hub</div>
-          <h1 class="hero-title">Study Voice Analytics & Live Leaderboard</h1>
-          <p class="hero-desc">Real-time voice tracking for Discord study sessions, automated daily totals, streaks, and focus metrics.</p>
-        </div>
-        <div class="date-badge" id="current-date-badge">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-            <line x1="16" y1="2" x2="16" y2="6"/>
-            <line x1="8" y1="2" x2="8" y2="6"/>
-            <line x1="3" y1="10" x2="21" y2="10"/>
-          </svg>
-          <span id="live-datetime-text">Today</span>
-        </div>
+
+    <!-- Member Quick-Switch Pills Bar -->
+    <div class="member-pills-bar" id="member-pills-container">
+      <span class="pills-title">Select Member:</span>
+      <div class="pills-scroll" id="member-chips-list">
+        <!-- Injected via JS -->
       </div>
-
-      <!-- KPI Cards Grid -->
-      <div class="kpi-grid">
-        <!-- Today Total Hours -->
-        <div class="kpi-card" id="kpi-today-time">
-          <div class="kpi-header">
-            <span class="kpi-label">Today's Focus Time</span>
-            <div class="kpi-icon icon-indigo">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <polyline points="12 6 12 12 16 14"/>
-              </svg>
-            </div>
-          </div>
-          <div class="kpi-value" id="kpi-today-hours">0h 00m</div>
-          <div class="kpi-subtext" id="kpi-today-sessions-count">0 study sessions recorded today</div>
-        </div>
-
-        <!-- Currently Active Now -->
-        <div class="kpi-card kpi-card-highlight" id="kpi-active-now">
-          <div class="kpi-header">
-            <span class="kpi-label">Studying Right Now</span>
-            <div class="kpi-icon icon-emerald">
-              <span class="pulse-dot-inner"></span>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                <line x1="12" y1="19" x2="12" y2="23"/>
-                <line x1="8" y1="23" x2="16" y2="23"/>
-              </svg>
-            </div>
-          </div>
-          <div class="kpi-value" id="kpi-active-count">0</div>
-          <div class="kpi-subtext" id="kpi-active-status-desc">In voice study channels</div>
-        </div>
-
-        <!-- Today's Top Hero -->
-        <div class="kpi-card" id="kpi-top-hero">
-          <div class="kpi-header">
-            <span class="kpi-label">Daily Study Hero 👑</span>
-            <div class="kpi-icon icon-amber">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
-                <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
-                <path d="M4 22h16"/>
-                <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
-                <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
-                <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
-              </svg>
-            </div>
-          </div>
-          <div class="kpi-hero-content" id="kpi-hero-wrapper">
-            <div class="kpi-value" id="kpi-top-hero-name">—</div>
-            <div class="kpi-subtext" id="kpi-top-hero-time">No sessions yet</div>
-          </div>
-        </div>
-
-        <!-- All-Time Server Focus -->
-        <div class="kpi-card" id="kpi-all-time">
-          <div class="kpi-header">
-            <span class="kpi-label">All-Time Server Focus</span>
-            <div class="kpi-icon icon-cyan">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-              </svg>
-            </div>
-          </div>
-          <div class="kpi-value" id="kpi-alltime-hours">0h</div>
-          <div class="kpi-subtext" id="kpi-total-members-count">0 tracked members</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Real-Time Voice Presence Section ("Currently Studying") -->
-    <section class="live-voice-section" id="live-study-rooms">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <span class="live-radar-dot"></span>
-          <h2 class="section-title">Live Study Rooms</h2>
-          <span class="badge-count" id="active-badge-pill">0 Active</span>
-        </div>
-        <span class="section-hint">Timers count up automatically in real-time</span>
-      </div>
-
-      <div class="live-cards-container" id="live-cards-grid">
-        <!-- Injected via JavaScript -->
-        <div class="empty-state" id="empty-live-state">
-          <div class="empty-state-icon">🎧</div>
-          <div class="empty-state-title">No one is in study channels right now</div>
-          <div class="empty-state-text">Join any voice channel on Discord to start your focus session and appear here!</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Leaderboard & Analytics Grid -->
-    <div class="dashboard-split-grid">
-      
-      <!-- Left Column: Interactive Leaderboard -->
-      <section class="card leaderboard-card" id="leaderboard-section">
-        <div class="card-header">
-          <div class="card-title-group">
-            <h2 class="card-title">Study Leaderboard</h2>
-            <p class="card-subtitle">Rankings based on verified voice channel study time</p>
-          </div>
-          
-          <!-- Timeframe Selector Tabs -->
-          <div class="tabs-control" id="timeframe-tabs" role="tablist">
-            <button class="tab-btn active" data-timeframe="today" role="tab" id="tab-today">Today</button>
-            <button class="tab-btn" data-timeframe="week" role="tab" id="tab-week">Week</button>
-            <button class="tab-btn" data-timeframe="month" role="tab" id="tab-month">Month</button>
-            <button class="tab-btn" data-timeframe="all" role="tab" id="tab-all">All-Time</button>
-          </div>
-        </div>
-
-        <!-- Search Bar -->
-        <div class="leaderboard-search">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <input type="text" id="leaderboard-search-input" placeholder="Search study members by name..." aria-label="Search study members">
-        </div>
-
-        <!-- Leaderboard Table / List -->
-        <div class="leaderboard-list-wrapper">
-          <div class="leaderboard-list" id="leaderboard-container">
-            <!-- Dynamically populated -->
-            <div class="loading-spinner-wrap">
-              <div class="spinner"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Right Column: Charts & Insights -->
-      <section class="analytics-column">
-        <!-- 14-Day Activity Trends Chart -->
-        <div class="card chart-card" id="trends-chart-card">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">14-Day Focus Trend</h2>
-              <p class="card-subtitle">Daily collective hours studied across the community</p>
-            </div>
-            <div class="chart-legend-badge">
-              <span class="legend-color-box"></span>
-              <span>Hours Studied</span>
-            </div>
-          </div>
-          <div class="chart-wrapper">
-            <canvas id="trendChart"></canvas>
-          </div>
-        </div>
-
-        <!-- Two Sub-Charts Grid -->
-        <div class="sub-charts-grid">
-          <!-- Peak Study Hours -->
-          <div class="card chart-card-compact" id="hourly-chart-card">
-            <div class="card-header">
-              <div>
-                <h3 class="card-title-sm">Peak Focus Hours</h3>
-                <p class="card-subtitle">When members study most (24h)</p>
-              </div>
-            </div>
-            <div class="chart-wrapper-compact">
-              <canvas id="hourlyChart"></canvas>
-            </div>
-          </div>
-
-          <!-- Channel Distribution -->
-          <div class="card chart-card-compact" id="channel-chart-card">
-            <div class="card-header">
-              <div>
-                <h3 class="card-title-sm">Top Study Rooms</h3>
-                <p class="card-subtitle">Time distribution by voice channel</p>
-              </div>
-            </div>
-            <div class="chart-wrapper-compact">
-              <canvas id="channelChart"></canvas>
-            </div>
-          </div>
-        </div>
-      </section>
-
     </div>
+    
+    <!-- Hero Personal Profile Banner -->
+    <section class="card profile-hero-card" id="profile-hero">
+      <div class="profile-hero-content">
+        <div class="profile-avatar-wrap">
+          <img id="user-avatar" class="profile-avatar-lg" src="https://cdn.discordapp.com/embed/avatars/0.png" alt="Avatar">
+          <span id="user-presence-dot" class="presence-dot offline"></span>
+        </div>
 
-    <!-- Recent Completed Sessions Table -->
-    <section class="card recent-sessions-card" id="recent-sessions-section">
+        <div class="profile-details">
+          <div class="profile-badges-row">
+            <span class="badge-tag" id="profile-rank-tag">🏆 Rank #1</span>
+            <span class="badge-tag badge-streak" id="profile-streak-tag">🔥 1 Day Streak</span>
+            <span class="badge-status" id="profile-status-badge">⚪ Offline</span>
+          </div>
+
+          <h1 class="profile-display-name" id="user-display-name">Loading...</h1>
+          <div class="profile-handle" id="user-handle">@username</div>
+          
+          <div class="profile-live-timer-wrap" id="user-live-timer-wrap" style="display: none;">
+            <div class="live-pulse-badge">
+              <span class="pulse-dot"></span>
+              <span id="user-live-channel-name">Studying in #Lounge</span>
+            </div>
+            <div class="live-timer-hero" id="user-live-timer-val">00:00:00</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="profile-hero-right">
+        <div class="hero-substat">
+          <span class="substat-label">🎧 Favorite Room</span>
+          <span class="substat-val" id="profile-fav-channel">—</span>
+        </div>
+        <div class="hero-substat">
+          <span class="substat-label">📝 Total Sessions</span>
+          <span class="substat-val" id="profile-session-count">0</span>
+        </div>
+        <div class="hero-substat">
+          <span class="substat-label">📅 Last Active</span>
+          <span class="substat-val" id="profile-last-active">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Personalized KPI Cards Grid (Daily, Weekly, Monthly, All-Time) -->
+    <section class="kpi-grid" id="user-kpi-grid">
+      <!-- Today's Time -->
+      <div class="kpi-card" id="kpi-user-today">
+        <div class="kpi-header">
+          <span class="kpi-label">Today's Focus</span>
+          <div class="kpi-icon icon-indigo">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="user-today-time">0m</div>
+        <div class="kpi-subtext" id="user-today-sub">Logged today</div>
+      </div>
+
+      <!-- This Week's Time -->
+      <div class="kpi-card" id="kpi-user-week">
+        <div class="kpi-header">
+          <span class="kpi-label">This Week</span>
+          <div class="kpi-icon icon-emerald">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 20V10"/>
+              <path d="M12 20V4"/>
+              <path d="M6 20v-6"/>
+            </svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="user-week-time">0m</div>
+        <div class="kpi-subtext">Past 7 days focus time</div>
+      </div>
+
+      <!-- This Month's Time -->
+      <div class="kpi-card" id="kpi-user-month">
+        <div class="kpi-header">
+          <span class="kpi-label">This Month</span>
+          <div class="kpi-icon icon-amber">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="user-month-time">0m</div>
+        <div class="kpi-subtext">Past 30 days focus time</div>
+      </div>
+
+      <!-- All-Time Total Time -->
+      <div class="kpi-card" id="kpi-user-alltime">
+        <div class="kpi-header">
+          <span class="kpi-label">All-Time Total</span>
+          <div class="kpi-icon icon-cyan">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="user-total-time">0m</div>
+        <div class="kpi-subtext" id="user-total-sub">Cumulative focus time</div>
+      </div>
+    </section>
+
+    <!-- Channel Breakdown Section (How much time spent in each channel) -->
+    <section class="card channel-breakdown-card" id="channel-breakdown-section">
       <div class="card-header">
         <div>
-          <h2 class="card-title">Recent Study Sessions</h2>
-          <p class="card-subtitle">Real-time log of recently completed voice sessions</p>
+          <h2 class="card-title">Voice Channel Time Breakdown</h2>
+          <p class="card-subtitle">Exact time spent studying across each voice channel for <strong id="channel-breakdown-user-name">this member</strong></p>
+        </div>
+      </div>
+
+      <div class="channel-split-grid">
+        <!-- Left: Donut Chart -->
+        <div class="channel-chart-container">
+          <div class="chart-wrapper-compact">
+            <canvas id="userChannelChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Right: Channel Table / Progress Bars -->
+        <div class="channel-list-container" id="user-channels-list">
+          <!-- Dynamically populated -->
+          <div class="loading-spinner-wrap"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Personal Trends & Peak Hours Grid -->
+    <div class="dashboard-split-grid">
+      <!-- Personal Trends Chart -->
+      <section class="card chart-card" id="personal-trend-card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Personal Focus Trend</h2>
+            <p class="card-subtitle">Daily focus hours over time</p>
+          </div>
+          <!-- Days Filter Toggle -->
+          <div class="tabs-control" id="trend-days-tabs">
+            <button class="tab-btn active" data-days="7">7 Days</button>
+            <button class="tab-btn" data-days="14">14 Days</button>
+            <button class="tab-btn" data-days="30">30 Days</button>
+          </div>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="userTrendChart"></canvas>
+        </div>
+      </section>
+
+      <!-- Personal Peak Study Hours (24h) -->
+      <section class="card chart-card" id="personal-hourly-card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Peak Focus Hours (24h)</h2>
+            <p class="card-subtitle">When this member studies most throughout the day</p>
+          </div>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="userHourlyChart"></canvas>
+        </div>
+      </section>
+    </div>
+
+    <!-- Personal Session History Log Table -->
+    <section class="card recent-sessions-card" id="user-sessions-section">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Personal Study Session History</h2>
+          <p class="card-subtitle">Verified voice sessions recorded by the bot for this member</p>
         </div>
       </div>
       <div class="table-responsive">
         <table class="sessions-table" id="sessions-table">
           <thead>
             <tr>
-              <th>Member</th>
-              <th>Study Room</th>
+              <th>Voice Room</th>
+              <th>Date</th>
               <th>Joined At</th>
               <th>Left At</th>
               <th>Duration</th>
-              <th>Action</th>
             </tr>
           </thead>
-          <tbody id="sessions-table-body">
+          <tbody id="user-sessions-table-body">
             <!-- Dynamically populated -->
           </tbody>
         </table>
       </div>
     </section>
 
-  </main>
+    <!-- Community Leaderboard Drawer / Comparison -->
+    <section class="card leaderboard-card" id="leaderboard-section">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Community Leaderboard</h2>
+          <p class="card-subtitle">Click any member to switch to their personal dashboard</p>
+        </div>
+        
+        <!-- Timeframe Selector Tabs -->
+        <div class="tabs-control" id="timeframe-tabs" role="tablist">
+          <button class="tab-btn active" data-timeframe="today">Today</button>
+          <button class="tab-btn" data-timeframe="week">Week</button>
+          <button class="tab-btn" data-timeframe="month">Month</button>
+          <button class="tab-btn" data-timeframe="all">All-Time</button>
+        </div>
+      </div>
 
-  <!-- Member Profile Modal -->
-  <div class="modal-overlay" id="user-modal" aria-hidden="true">
-    <div class="modal-card">
-      <button class="modal-close-btn" id="btn-close-modal" aria-label="Close modal">&times;</button>
-      <div class="modal-header-profile" id="modal-profile-header">
+      <div class="leaderboard-list" id="leaderboard-container">
         <!-- Dynamically populated -->
       </div>
-      <div class="modal-body" id="modal-profile-body">
-        <!-- Dynamically populated stats & personal 14-day chart -->
-      </div>
-    </div>
-  </div>
+    </section>
+
+  </main>
 
   <!-- Bot Setup & Commands Guide Modal -->
   <div class="modal-overlay" id="guide-modal" aria-hidden="true">
@@ -328,7 +318,7 @@
       <div class="guide-content">
         <div class="guide-block">
           <h3>🎙️ How Study Tracking Works</h3>
-          <p>Whenever you join any voice channel on the server, the bot begins recording your study session automatically. When you leave, it calculates your session length, updates your daily total, and maintains your daily streak!</p>
+          <p>Whenever you join any voice channel on the server, the bot starts recording your study session automatically. When you leave, it calculates your session length, updates your daily total, and maintains your daily streak!</p>
           <div class="guide-tip">
             <strong>💡 Pro-Tip:</strong> The Discord AFK channel is automatically excluded so away-time is never counted as study time.
           </div>
@@ -338,11 +328,11 @@
           <h3>⚡ Available Slash Commands</h3>
           <div class="command-item">
             <code>/stats [user]</code>
-            <span>View your personal study time today, this week, total, streak, and rank.</span>
+            <span>View personal study time today, this week, month, streak, and rank.</span>
           </div>
           <div class="command-item">
             <code>/leaderboard [timeframe]</code>
-            <span>View top 10 study champions for Today, This Week, or All-Time.</span>
+            <span>View top study champions for Today, This Week, or All-Time.</span>
           </div>
           <div class="command-item">
             <code>/active</code>

@@ -303,6 +303,18 @@ function getUserStats(userId, guildId = null) {
   }
   const weekSeconds = db.prepare(weekSql).get(...weekParams).seconds;
 
+  // This month's seconds (last 30 days)
+  const monthDate = new Date();
+  monthDate.setDate(monthDate.getDate() - 30);
+  const monthStr = monthDate.toISOString().slice(0, 10);
+  let monthSql = `SELECT COALESCE(SUM(duration_seconds), 0) AS seconds FROM study_sessions WHERE user_id = ? AND date >= ?`;
+  const monthParams = [userId, monthStr];
+  if (guildId) {
+    monthSql += ` AND guild_id = ?`;
+    monthParams.push(guildId);
+  }
+  const monthSeconds = db.prepare(monthSql).get(...monthParams).seconds;
+
   // Total seconds for this guild / overall
   let totalSql = `SELECT COALESCE(SUM(duration_seconds), 0) AS seconds, COUNT(id) AS session_count FROM study_sessions WHERE user_id = ?`;
   const totalParams = [userId];
@@ -349,6 +361,7 @@ function getUserStats(userId, guildId = null) {
     currentStreak: profile.current_streak,
     todaySeconds,
     weekSeconds,
+    monthSeconds,
     totalSeconds: totalRow.seconds,
     sessionCount: totalRow.session_count,
     rank: rankResult ? rankResult.rank : null,
@@ -526,6 +539,135 @@ function getUserDailyHistory(userId, days = 14) {
   return result;
 }
 
+/**
+ * Get all members who have tracked voice sessions at least once
+ */
+function getAllTrackedUsers(guildId = null) {
+  let sql = `
+    SELECT
+      u.user_id,
+      COALESCE(u.display_name, u.username) AS display_name,
+      u.username,
+      u.avatar_url,
+      u.total_seconds,
+      u.current_streak,
+      u.last_active_date,
+      COUNT(s.id) AS session_count
+    FROM user_profiles u
+    INNER JOIN study_sessions s ON u.user_id = s.user_id
+  `;
+  const params = [];
+  if (guildId) {
+    sql += ` WHERE s.guild_id = ?`;
+    params.push(guildId);
+  }
+  sql += `
+    GROUP BY u.user_id
+    ORDER BY u.total_seconds DESC
+  `;
+  return db.prepare(sql).all(...params);
+}
+
+/**
+ * Channel distribution for a specific individual user
+ */
+function getUserChannelDistribution(userId, guildId = null) {
+  let sql = `
+    SELECT
+      channel_id,
+      channel_name,
+      COALESCE(SUM(duration_seconds), 0) AS total_seconds,
+      COUNT(id) AS session_count
+    FROM study_sessions
+    WHERE user_id = ?
+  `;
+  const params = [userId];
+  if (guildId) {
+    sql += ` AND guild_id = ?`;
+    params.push(guildId);
+  }
+  sql += ` GROUP BY channel_id ORDER BY total_seconds DESC`;
+
+  const rows = db.prepare(sql).all(...params);
+  return rows.map(r => ({
+    channelId: r.channel_id,
+    channelName: r.channel_name,
+    totalSeconds: r.total_seconds,
+    totalHours: Number((r.total_seconds / 3600).toFixed(2)),
+    sessionCount: r.session_count
+  }));
+}
+
+/**
+ * Peak study hours (0-23) for a specific individual user
+ */
+function getUserHourlyDistribution(userId, guildId = null) {
+  let sql = `
+    SELECT
+      hour_of_day,
+      COALESCE(SUM(duration_seconds), 0) AS total_seconds,
+      COUNT(id) AS session_count
+    FROM study_sessions
+    WHERE user_id = ?
+  `;
+  const params = [userId];
+  if (guildId) {
+    sql += ` AND guild_id = ?`;
+    params.push(guildId);
+  }
+  sql += ` GROUP BY hour_of_day ORDER BY hour_of_day ASC`;
+
+  const rows = db.prepare(sql).all(...params);
+  const hourMap = {};
+  rows.forEach(r => { hourMap[r.hour_of_day] = r; });
+
+  const result = [];
+  for (let h = 0; h < 24; h++) {
+    const r = hourMap[h];
+    const totalSec = r ? r.total_seconds : 0;
+    const hourLabel = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
+    result.push({
+      hour: h,
+      label: hourLabel,
+      totalSeconds: totalSec,
+      totalHours: Number((totalSec / 3600).toFixed(2)),
+      sessionCount: r ? r.session_count : 0
+    });
+  }
+  return result;
+}
+
+/**
+ * Get recent study sessions log for a specific individual user
+ */
+function getUserRecentSessions(userId, guildId = null, limit = 25) {
+  let sql = `
+    SELECT
+      id,
+      user_id,
+      username,
+      display_name,
+      avatar_url,
+      channel_id,
+      channel_name,
+      joined_at,
+      left_at,
+      duration_seconds,
+      date
+    FROM study_sessions
+    WHERE user_id = ?
+  `;
+  const params = [userId];
+  if (guildId) {
+    sql += ` AND guild_id = ?`;
+    params.push(guildId);
+  }
+  sql += ` ORDER BY joined_at DESC LIMIT ?`;
+  params.push(limit);
+
+  return db.prepare(sql).all(...params);
+}
+
 module.exports = {
   upsertUserProfile,
   saveSession,
@@ -537,5 +679,9 @@ module.exports = {
   getHourlyDistribution,
   getChannelDistribution,
   getRecentSessions,
-  getUserDailyHistory
+  getUserDailyHistory,
+  getAllTrackedUsers,
+  getUserChannelDistribution,
+  getUserHourlyDistribution,
+  getUserRecentSessions
 };

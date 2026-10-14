@@ -1,17 +1,20 @@
 /**
- * StudyPulse — Discord Study Tracker Frontend Application
+ * StudyPulse — Personalized Discord Study Analytics & Channel Tracker
  */
 
-// State
+// Application State
+let selectedUserId = null;
+let currentTrendDays = 7;
 let currentTimeframe = 'today';
-let activeSessions = [];
-let chartTrend = null;
-let chartHourly = null;
-let chartChannel = null;
-let chartModalUser = null;
+let trackedUsers = [];
+let activeVoiceUsers = [];
+let chartUserTrend = null;
+let chartUserChannel = null;
+let chartUserHourly = null;
 let timerInterval = null;
+let currentActiveSession = null;
 
-// Helper: Format seconds to '2h 15m' or '45m'
+// Helper: Format seconds to '2h 15m' or '45m' or '38s'
 function formatDuration(seconds) {
   if (!seconds || seconds <= 0) return '0m';
   const h = Math.floor(seconds / 3600);
@@ -21,7 +24,7 @@ function formatDuration(seconds) {
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   }
   if (m > 0) {
-    return `${m}m`;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
   }
   return `${s}s`;
 }
@@ -38,7 +41,7 @@ function formatDigitalTimer(seconds) {
   return `${pad(m)}:${pad(s)}`;
 }
 
-// Helper: Format ISO date string to readable time
+// Helper: Format ISO date string
 function formatTime(isoString) {
   if (!isoString) return '—';
   const d = new Date(isoString);
@@ -48,7 +51,7 @@ function formatTime(isoString) {
 function formatDate(isoString) {
   if (!isoString) return '—';
   const d = new Date(isoString);
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 // Show Toast notification
@@ -67,581 +70,7 @@ function showToast(message, icon = '🔔') {
   }, 4000);
 }
 
-// 1. Fetch & Render Overview Metrics
-async function fetchOverview() {
-  try {
-    const res = await fetch('/api/stats/overview');
-    const json = await res.json();
-    if (!json.success) return;
-
-    const data = json.data;
-
-    // Today's Focus Hours
-    const todaySec = data.today.totalSeconds || 0;
-    document.getElementById('kpi-today-hours').textContent = formatDuration(todaySec);
-    document.getElementById('kpi-today-sessions-count').textContent = 
-      `${data.today.sessionsCount} session${data.today.sessionsCount === 1 ? '' : 's'} recorded today`;
-
-    // Active Now
-    document.getElementById('kpi-active-count').textContent = data.activeNowCount;
-    document.getElementById('active-badge-pill').textContent = `${data.activeNowCount} Active`;
-
-    // Top Hero of the day
-    if (data.today.topUser) {
-      document.getElementById('kpi-top-hero-name').textContent = data.today.topUser.display_name || data.today.topUser.username;
-      document.getElementById('kpi-top-hero-time').textContent = `${formatDuration(data.today.topUser.seconds)} studied today`;
-    } else {
-      document.getElementById('kpi-top-hero-name').textContent = '—';
-      document.getElementById('kpi-top-hero-time').textContent = 'No sessions yet today';
-    }
-
-    // All-time
-    const allTimeHours = Math.round((data.allTimeSeconds || 0) / 3600);
-    document.getElementById('kpi-alltime-hours').textContent = `${allTimeHours}h`;
-    document.getElementById('kpi-total-members-count').textContent = `${data.totalStudents} total members tracked`;
-
-  } catch (err) {
-    console.error('Error fetching overview stats:', err);
-  }
-}
-
-// 2. Fetch & Render Live Voice Participants
-async function fetchActiveUsers() {
-  try {
-    const res = await fetch('/api/active');
-    const json = await res.json();
-    if (!json.success) return;
-
-    activeSessions = json.data;
-    renderLiveCards();
-  } catch (err) {
-    console.error('Error fetching active voice users:', err);
-  }
-}
-
-function renderLiveCards() {
-  const container = document.getElementById('live-cards-grid');
-
-  if (activeSessions.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state" id="empty-live-state">
-        <div class="empty-state-icon">🎧</div>
-        <div class="empty-state-title">No one is in study channels right now</div>
-        <div class="empty-state-text">Join any voice channel on Discord to start your focus session and appear here!</div>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = activeSessions.map(user => `
-    <div class="live-user-card" data-user-id="${user.userId}">
-      <div class="user-avatar-wrap">
-        <img class="user-avatar" src="${user.avatarUrl || 'https://cdn.discordapp.com/embed/avatars/0.png'}" alt="${user.displayName}">
-        <span class="avatar-badge-active"></span>
-      </div>
-      <div class="live-user-info">
-        <div class="live-user-name">${escapeHtml(user.displayName)}</div>
-        <div class="live-user-channel">
-          <span>🔊</span> #${escapeHtml(user.channelName)}
-        </div>
-      </div>
-      <div class="live-timer-badge">
-        <div class="live-timer-val" id="timer-${user.userId}">${formatDigitalTimer(user.elapsedSeconds)}</div>
-        <div class="live-timer-label">In Session</div>
-      </div>
-    </div>
-  `).join('');
-
-  // Attach click listener to open profile
-  container.querySelectorAll('.live-user-card').forEach(card => {
-    card.addEventListener('click', () => {
-      openUserModal(card.dataset.userId);
-    });
-  });
-}
-
-// 3. Ticking Timer for Live Cards
-function startLiveTicker() {
-  if (timerInterval) clearInterval(timerInterval);
-  timerInterval = setInterval(() => {
-    if (activeSessions.length === 0) return;
-    const now = Date.now();
-    activeSessions.forEach(session => {
-      let elapsedMs = now - session.joinedAt - (session.totalPausedMs || 0);
-      if (session.isPaused && session.pausedAt) {
-        elapsedMs -= (now - session.pausedAt);
-      }
-      const elapsedSec = Math.max(0, Math.floor(elapsedMs / 1000));
-      session.elapsedSeconds = elapsedSec;
-
-      const el = document.getElementById(`timer-${session.userId}`);
-      if (el) {
-        el.textContent = formatDigitalTimer(elapsedSec);
-      }
-    });
-  }, 1000);
-}
-
-// 4. Fetch & Render Leaderboard
-async function fetchLeaderboard(timeframe = 'today') {
-  const container = document.getElementById('leaderboard-container');
-  try {
-    const res = await fetch(`/api/leaderboard?timeframe=${timeframe}`);
-    const json = await res.json();
-    if (!json.success) return;
-
-    window._leaderboardData = json.data;
-    renderLeaderboardList(json.data);
-  } catch (err) {
-    console.error('Error fetching leaderboard:', err);
-    container.innerHTML = `<div class="empty-state">Failed to load leaderboard data</div>`;
-  }
-}
-
-function renderLeaderboardList(users) {
-  const container = document.getElementById('leaderboard-container');
-  const searchVal = (document.getElementById('leaderboard-search-input').value || '').toLowerCase().trim();
-
-  const filtered = users.filter(u => 
-    (u.display_name && u.display_name.toLowerCase().includes(searchVal)) ||
-    (u.username && u.username.toLowerCase().includes(searchVal))
-  );
-
-  if (filtered.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state" style="padding: 1.5rem;">
-        <div style="font-size: 1.5rem; margin-bottom: 0.35rem;">🔍</div>
-        <div class="empty-state-title">No participants found</div>
-        <div class="empty-state-text">Try another search or timeframe.</div>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = filtered.map(u => {
-    let rankBadgeClass = 'rank-regular';
-    let rankContent = `#${u.rank}`;
-    if (u.rank === 1) {
-      rankBadgeClass = 'rank-gold';
-      rankContent = '🥇';
-    } else if (u.rank === 2) {
-      rankBadgeClass = 'rank-silver';
-      rankContent = '🥈';
-    } else if (u.rank === 3) {
-      rankBadgeClass = 'rank-bronze';
-      rankContent = '🥉';
-    }
-
-    const streakTag = u.streak > 0 ? `<span class="streak-pill">🔥 ${u.streak}d streak</span>` : '';
-    const avatar = u.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png';
-
-    return `
-      <div class="leader-item" data-user-id="${u.user_id}">
-        <div class="rank-badge ${rankBadgeClass}">${rankContent}</div>
-        <img class="leader-avatar" src="${avatar}" alt="${escapeHtml(u.display_name)}">
-        <div class="leader-info">
-          <div class="leader-name">${escapeHtml(u.display_name)}</div>
-          <div class="leader-meta">
-            <span>@${escapeHtml(u.username)}</span>
-            ${streakTag ? '<span>•</span> ' + streakTag : ''}
-          </div>
-        </div>
-        <div class="leader-time">
-          <div class="leader-hours">${formatDuration(u.total_seconds)}</div>
-          <div class="leader-sessions-count">${u.session_count} session${u.session_count === 1 ? '' : 's'}</div>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  // Attach click listener for modal
-  container.querySelectorAll('.leader-item').forEach(item => {
-    item.addEventListener('click', () => {
-      openUserModal(item.dataset.userId);
-    });
-  });
-}
-
-// 5. Fetch & Render Trend & Distribution Charts
-async function fetchTrendsChart() {
-  try {
-    const res = await fetch('/api/trends?days=14');
-    const json = await res.json();
-    if (!json.success) return;
-
-    const data = json.data;
-    const labels = data.map(d => d.label);
-    const hours = data.map(d => d.totalHours);
-
-    const ctx = document.getElementById('trendChart').getContext('2d');
-    if (chartTrend) chartTrend.destroy();
-
-    const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.45)');
-    gradient.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
-
-    chartTrend = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'Hours Studied',
-          data: hours,
-          borderColor: '#6366f1',
-          borderWidth: 2.5,
-          pointBackgroundColor: '#818cf8',
-          pointBorderColor: '#0a0e17',
-          pointBorderWidth: 2,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          fill: true,
-          backgroundColor: gradient,
-          tension: 0.35
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#111827',
-            titleColor: '#f8fafc',
-            bodyColor: '#94a3b8',
-            borderColor: 'rgba(99, 102, 241, 0.3)',
-            borderWidth: 1,
-            padding: 10,
-            displayColors: false,
-            callbacks: {
-              label: context => ` ${context.parsed.y} hours total`
-            }
-          }
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: { color: '#64748b', font: { size: 10 } }
-          },
-          y: {
-            grid: { color: 'rgba(255, 255, 255, 0.05)' },
-            ticks: {
-              color: '#64748b',
-              font: { size: 10 },
-              callback: val => `${val}h`
-            },
-            beginAtZero: true
-          }
-        }
-      }
-    });
-
-  } catch (err) {
-    console.error('Error fetching trends chart:', err);
-  }
-}
-
-async function fetchHourlyAndChannelCharts() {
-  try {
-    // 1. Hourly Chart
-    const resH = await fetch('/api/distribution/hourly');
-    const jsonH = await resH.json();
-    if (jsonH.success) {
-      const hData = jsonH.data;
-      const ctxH = document.getElementById('hourlyChart').getContext('2d');
-      if (chartHourly) chartHourly.destroy();
-
-      chartHourly = new Chart(ctxH, {
-        type: 'bar',
-        data: {
-          labels: hData.map(d => d.label),
-          datasets: [{
-            data: hData.map(d => d.totalHours),
-            backgroundColor: 'rgba(139, 92, 246, 0.65)',
-            hoverBackgroundColor: '#8b5cf6',
-            borderRadius: 4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: '#111827',
-              borderColor: 'rgba(139, 92, 246, 0.3)',
-              borderWidth: 1,
-              callbacks: {
-                label: c => ` ${c.parsed.y} hrs studied`
-              }
-            }
-          },
-          scales: {
-            x: {
-              grid: { display: false },
-              ticks: {
-                color: '#64748b',
-                font: { size: 8 },
-                maxTicksLimit: 8
-              }
-            },
-            y: {
-              display: false,
-              beginAtZero: true
-            }
-          }
-        }
-      });
-    }
-
-    // 2. Channel Distribution Doughnut Chart
-    const resC = await fetch('/api/distribution/channels');
-    const jsonC = await resC.json();
-    if (jsonC.success) {
-      const cData = jsonC.data;
-      const ctxC = document.getElementById('channelChart').getContext('2d');
-      if (chartChannel) chartChannel.destroy();
-
-      const colors = ['#6366f1', '#10b981', '#f59e0b', '#06b6d4', '#ec4899', '#8b5cf6'];
-
-      chartChannel = new Chart(ctxC, {
-        type: 'doughnut',
-        data: {
-          labels: cData.map(c => c.channelName),
-          datasets: [{
-            data: cData.map(c => c.totalHours),
-            backgroundColor: colors.slice(0, cData.length),
-            borderWidth: 0,
-            hoverOffset: 4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'right',
-              labels: {
-                color: '#94a3b8',
-                font: { size: 9 },
-                boxWidth: 8,
-                padding: 6
-              }
-            },
-            tooltip: {
-              backgroundColor: '#111827',
-              borderColor: 'rgba(255, 255, 255, 0.1)',
-              borderWidth: 1,
-              callbacks: {
-                label: c => ` ${c.label}: ${c.parsed} hrs`
-              }
-            }
-          },
-          cutout: '65%'
-        }
-      });
-    }
-
-  } catch (err) {
-    console.error('Error fetching distribution charts:', err);
-  }
-}
-
-// 6. Fetch & Render Recent Sessions Table
-async function fetchRecentSessions() {
-  try {
-    const res = await fetch('/api/sessions?limit=15');
-    const json = await res.json();
-    if (!json.success) return;
-
-    const tbody = document.getElementById('sessions-table-body');
-    const sessions = json.data;
-
-    if (sessions.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">No study sessions recorded yet.</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = sessions.map(s => `
-      <tr>
-        <td>
-          <div class="user-cell">
-            <img class="user-cell-avatar" src="${s.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png'}" alt="">
-            <div>
-              <div style="font-weight: 600; color: var(--text-main);">${escapeHtml(s.display_name || s.username)}</div>
-              <div style="font-size: 0.75rem; color: var(--text-muted);">@${escapeHtml(s.username)}</div>
-            </div>
-          </div>
-        </td>
-        <td>
-          <span class="channel-tag">🔊 #${escapeHtml(s.channel_name || 'Study Room')}</span>
-        </td>
-        <td>${formatDate(s.joined_at)} ${formatTime(s.joined_at)}</td>
-        <td>${formatDate(s.left_at)} ${formatTime(s.left_at)}</td>
-        <td>
-          <span class="duration-pill">${formatDuration(s.duration_seconds)}</span>
-        </td>
-        <td>
-          <button class="btn btn-secondary btn-sm" onclick="openUserModal('${s.user_id}')">Stats</button>
-        </td>
-      </tr>
-    `).join('');
-
-  } catch (err) {
-    console.error('Error fetching recent sessions:', err);
-  }
-}
-
-// 7. Member Profile Modal
-async function openUserModal(userId) {
-  const modal = document.getElementById('user-modal');
-  const header = document.getElementById('modal-profile-header');
-  const body = document.getElementById('modal-profile-body');
-
-  header.innerHTML = `<div class="loading-spinner-wrap"><div class="spinner"></div></div>`;
-  body.innerHTML = '';
-  modal.classList.add('active');
-
-  try {
-    const res = await fetch(`/api/users/${userId}`);
-    const json = await res.json();
-    if (!json.success) {
-      header.innerHTML = `<div class="empty-state">User profile not found.</div>`;
-      return;
-    }
-
-    const { stats, history, activeSession } = json.data;
-    const avatar = stats.avatarUrl || 'https://cdn.discordapp.com/embed/avatars/0.png';
-
-    header.innerHTML = `
-      <div class="modal-profile-top">
-        <img class="modal-profile-avatar" src="${avatar}" alt="${escapeHtml(stats.displayName)}">
-        <div>
-          <h2 class="modal-profile-title">${escapeHtml(stats.displayName)}</h2>
-          <div class="modal-profile-handle">@${escapeHtml(stats.username)}</div>
-          <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-            ${stats.rank ? `<span class="badge-count" style="background: rgba(99,102,241,0.2); color: #818cf8; border-color: rgba(99,102,241,0.4);">Rank #${stats.rank}</span>` : ''}
-            ${stats.currentStreak > 0 ? `<span class="badge-count" style="background: rgba(245,158,11,0.2); color: #f59e0b; border-color: rgba(245,158,11,0.4);">🔥 ${stats.currentStreak} Day Streak</span>` : ''}
-            ${activeSession ? `<span class="badge-count" style="background: rgba(16,185,129,0.2); color: #10b981; border-color: rgba(16,185,129,0.4);">🟢 In #${escapeHtml(activeSession.channelName)}</span>` : ''}
-          </div>
-        </div>
-      </div>
-    `;
-
-    body.innerHTML = `
-      <div class="modal-kpi-grid">
-        <div class="modal-kpi-item">
-          <div class="modal-kpi-label">Today</div>
-          <div class="modal-kpi-val">${formatDuration(stats.todaySeconds)}</div>
-        </div>
-        <div class="modal-kpi-item">
-          <div class="modal-kpi-label">This Week</div>
-          <div class="modal-kpi-val">${formatDuration(stats.weekSeconds)}</div>
-        </div>
-        <div class="modal-kpi-item">
-          <div class="modal-kpi-label">All-Time</div>
-          <div class="modal-kpi-val">${formatDuration(stats.totalSeconds)}</div>
-        </div>
-      </div>
-
-      <div style="font-size: 0.825rem; color: var(--text-secondary); margin-bottom: 1.25rem;">
-        <span>🎧 <strong>Favorite Study Room:</strong> ${escapeHtml(stats.favoriteChannel || 'None')}</span><br>
-        <span>📝 <strong>Completed Sessions:</strong> ${stats.sessionCount || 0}</span>
-      </div>
-
-      <div class="modal-chart-section">
-        <div class="modal-chart-title">14-Day Focus History</div>
-        <div class="modal-chart-wrap">
-          <canvas id="userHistoryChart"></canvas>
-        </div>
-      </div>
-    `;
-
-    // Render User Personal Chart
-    const ctxModal = document.getElementById('userHistoryChart').getContext('2d');
-    if (chartModalUser) chartModalUser.destroy();
-
-    chartModalUser = new Chart(ctxModal, {
-      type: 'bar',
-      data: {
-        labels: history.map(h => h.label),
-        datasets: [{
-          label: 'Hours',
-          data: history.map(h => h.totalHours),
-          backgroundColor: '#6366f1',
-          borderRadius: 4
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: c => ` ${c.parsed.y} hrs`
-            }
-          }
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: { color: '#64748b', font: { size: 9 }, maxTicksLimit: 7 }
-          },
-          y: {
-            grid: { color: 'rgba(255, 255, 255, 0.05)' },
-            ticks: { color: '#64748b', font: { size: 9 } },
-            beginAtZero: true
-          }
-        }
-      }
-    });
-
-  } catch (err) {
-    console.error('Error loading user profile:', err);
-    header.innerHTML = `<div class="empty-state">Failed to load user statistics.</div>`;
-  }
-}
-
-// 8. Server-Sent Events (SSE) for Real-Time Live Sync
-function connectSSE() {
-  const eventSource = new EventSource('/api/events');
-
-  eventSource.addEventListener('session_started', e => {
-    try {
-      const data = JSON.parse(e.data);
-      showToast(`${data.user.displayName} joined #${data.user.channelName} 🎧`, '🟢');
-      fetchActiveUsers();
-      fetchOverview();
-    } catch (err) {
-      console.error(err);
-    }
-  });
-
-  eventSource.addEventListener('session_ended', e => {
-    try {
-      const data = JSON.parse(e.data);
-      showToast(`${data.user.displayName} finished studying (${data.formattedDuration}) 🎉`, '🔴');
-      fetchActiveUsers();
-      fetchOverview();
-      fetchLeaderboard(currentTimeframe);
-      fetchRecentSessions();
-      fetchTrendsChart();
-      fetchHourlyAndChannelCharts();
-    } catch (err) {
-      console.error(err);
-    }
-  });
-
-  eventSource.onerror = () => {
-    document.getElementById('voice-connection-status').textContent = 'Reconnecting...';
-  };
-
-  eventSource.onopen = () => {
-    document.getElementById('voice-connection-status').textContent = 'Live Tracking Active';
-  };
-}
-
-// Helper: Escape HTML strings to prevent XSS
+// Escape HTML strings
 function escapeHtml(text) {
   if (!text) return '';
   return String(text)
@@ -652,87 +81,580 @@ function escapeHtml(text) {
     .replace(/'/g, '&#039;');
 }
 
+// 1. Fetch all members who have studied at least once
+async function fetchTrackedUsers() {
+  try {
+    const res = await fetch('/api/users');
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    trackedUsers = json.data;
+
+    if (trackedUsers.length === 0) {
+      document.getElementById('user-display-name').textContent = 'No members recorded yet';
+      document.getElementById('user-handle').textContent = 'Join any voice channel in Discord to start tracking!';
+      document.getElementById('member-chips-list').innerHTML = `
+        <span style="font-size: 0.8rem; color: var(--text-muted);">Hop into any Discord voice channel to be detected automatically!</span>
+      `;
+      return;
+    }
+
+    renderMemberSelectors();
+
+    // Determine initial user to select
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramUser = urlParams.get('user') || urlParams.get('u') || urlParams.get('id');
+
+    let initialId = null;
+    if (paramUser) {
+      const match = trackedUsers.find(u => 
+        u.user_id === paramUser || 
+        u.username.toLowerCase() === paramUser.toLowerCase() ||
+        u.display_name.toLowerCase() === paramUser.toLowerCase()
+      );
+      if (match) initialId = match.user_id;
+    }
+
+    if (!initialId) {
+      const saved = localStorage.getItem('studyPulseSelectedUser');
+      if (saved && trackedUsers.some(u => u.user_id === saved)) {
+        initialId = saved;
+      }
+    }
+
+    if (!initialId) {
+      initialId = trackedUsers[0].user_id;
+    }
+
+    selectUser(initialId);
+
+  } catch (err) {
+    console.error('Error fetching tracked users:', err);
+  }
+}
+
+// Render dropdown and quick-switch pills
+function renderMemberSelectors() {
+  const dropdown = document.getElementById('nav-user-select');
+  const chipsList = document.getElementById('member-chips-list');
+
+  // Populate Navbar Dropdown
+  dropdown.innerHTML = trackedUsers.map(u => `
+    <option value="${u.user_id}">${escapeHtml(u.display_name)} (@${escapeHtml(u.username)})</option>
+  `).join('');
+
+  // Populate Quick-switch chips
+  chipsList.innerHTML = trackedUsers.map(u => `
+    <button class="member-chip ${u.user_id === selectedUserId ? 'active' : ''}" data-user-id="${u.user_id}">
+      <img class="chip-avatar" src="${u.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png'}" alt="">
+      <span class="chip-name">${escapeHtml(u.display_name)}</span>
+      ${u.current_streak > 0 ? `<span style="font-size: 0.75rem;">🔥${u.current_streak}d</span>` : ''}
+    </button>
+  `).join('');
+
+  // Attach chip click listeners
+  chipsList.querySelectorAll('.member-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectUser(btn.dataset.userId);
+    });
+  });
+}
+
+// Select a specific member
+function selectUser(userId) {
+  if (!userId) return;
+  selectedUserId = userId;
+  localStorage.setItem('studyPulseSelectedUser', userId);
+
+  // Update URL without page refresh
+  const url = new URL(window.location);
+  url.searchParams.set('user', userId);
+  window.history.replaceState({}, '', url);
+
+  // Update dropdown value
+  const dropdown = document.getElementById('nav-user-select');
+  if (dropdown) dropdown.value = userId;
+
+  // Update active chip
+  document.querySelectorAll('.member-chip').forEach(chip => {
+    if (chip.dataset.userId === userId) {
+      chip.classList.add('active');
+    } else {
+      chip.classList.remove('active');
+    }
+  });
+
+  loadPersonalDashboard(userId);
+}
+
+// 2. Load Personalized Analytics for Selected Member
+async function loadPersonalDashboard(userId) {
+  try {
+    const res = await fetch(`/api/users/${userId}/analytics?days=${currentTrendDays}`);
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    const { stats, channels, hourly, trends, sessions, activeSession } = json.data;
+
+    // 1. Profile Hero Section
+    const avatar = stats.avatarUrl || 'https://cdn.discordapp.com/embed/avatars/0.png';
+    document.getElementById('user-avatar').src = avatar;
+    document.getElementById('user-display-name').textContent = stats.displayName;
+    document.getElementById('user-handle').textContent = `@${stats.username}`;
+    document.getElementById('channel-breakdown-user-name').textContent = stats.displayName;
+
+    // Rank & Streak
+    document.getElementById('profile-rank-tag').textContent = stats.rank ? `🏆 Rank #${stats.rank}` : 'Unranked';
+    document.getElementById('profile-streak-tag').textContent = stats.currentStreak > 0 ? `🔥 ${stats.currentStreak} Day Streak` : '🔥 0 Days';
+    document.getElementById('profile-fav-channel').textContent = stats.favoriteChannel || 'None';
+    document.getElementById('profile-session-count').textContent = stats.sessionCount || '0';
+    document.getElementById('profile-last-active').textContent = stats.lastActive ? formatDate(stats.lastActive) : 'Today';
+
+    // Live Voice Status
+    const presenceDot = document.getElementById('user-presence-dot');
+    const statusBadge = document.getElementById('profile-status-badge');
+    const liveTimerWrap = document.getElementById('user-live-timer-wrap');
+
+    if (activeSession) {
+      currentActiveSession = activeSession;
+      presenceDot.className = 'presence-dot online';
+      statusBadge.className = 'badge-status active-voice';
+      statusBadge.textContent = '🟢 In Voice Channel';
+      liveTimerWrap.style.display = 'flex';
+      document.getElementById('user-live-channel-name').textContent = `Studying in #${activeSession.channelName}`;
+      document.getElementById('user-live-timer-val').textContent = formatDigitalTimer(activeSession.elapsedSeconds);
+    } else {
+      currentActiveSession = null;
+      presenceDot.className = 'presence-dot offline';
+      statusBadge.className = 'badge-status';
+      statusBadge.textContent = '⚪ Offline';
+      liveTimerWrap.style.display = 'none';
+    }
+
+    // 2. Personalized KPI Cards
+    document.getElementById('user-today-time').textContent = formatDuration(stats.todaySeconds);
+    document.getElementById('user-week-time').textContent = formatDuration(stats.weekSeconds);
+    document.getElementById('user-month-time').textContent = formatDuration(stats.monthSeconds);
+    document.getElementById('user-total-time').textContent = formatDuration(stats.totalSeconds);
+
+    // 3. Channel Breakdown Render
+    renderChannelBreakdown(channels, stats.totalSeconds);
+
+    // 4. Personal Trends Chart
+    renderPersonalTrendsChart(trends);
+
+    // 5. Personal Hourly Chart
+    renderPersonalHourlyChart(hourly);
+
+    // 6. Personal Recent Sessions Table
+    renderPersonalSessionsTable(sessions);
+
+  } catch (err) {
+    console.error('Error loading personal dashboard:', err);
+  }
+}
+
+// 3. Render Channel Time Breakdown (Donut + Progress list)
+function renderChannelBreakdown(channels, totalUserSeconds) {
+  const container = document.getElementById('user-channels-list');
+
+  if (!channels || channels.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="padding: 1.5rem;">
+        <div class="empty-state-title">No channel records yet</div>
+        <div class="empty-state-text">Join any voice channel to log your focus time here!</div>
+      </div>
+    `;
+    if (chartUserChannel) chartUserChannel.destroy();
+    return;
+  }
+
+  const safeTotal = totalUserSeconds > 0 ? totalUserSeconds : channels.reduce((sum, c) => sum + c.totalSeconds, 0);
+
+  // Render list of channels with progress bars
+  container.innerHTML = channels.map(c => {
+    const percentage = safeTotal > 0 ? Math.min(100, Math.round((c.totalSeconds / safeTotal) * 100)) : 0;
+    return `
+      <div class="channel-row">
+        <div class="channel-row-header">
+          <span class="channel-name-title">
+            <span>🔊</span> #${escapeHtml(c.channelName)}
+          </span>
+          <span class="channel-time-val">${formatDuration(c.totalSeconds)}</span>
+        </div>
+        <div class="channel-progress-track">
+          <div class="channel-progress-fill" style="width: ${percentage}%;"></div>
+        </div>
+        <div class="channel-row-footer">
+          <span>${percentage}% of study time</span>
+          <span>${c.sessionCount} session${c.sessionCount === 1 ? '' : 's'}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Render Donut Chart
+  const ctx = document.getElementById('userChannelChart').getContext('2d');
+  if (chartUserChannel) chartUserChannel.destroy();
+
+  const colors = ['#6366f1', '#10b981', '#f59e0b', '#06b6d4', '#ec4899', '#8b5cf6', '#3b82f6'];
+
+  chartUserChannel = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: channels.map(c => `#${c.channelName}`),
+      datasets: [{
+        data: channels.map(c => Number((c.totalSeconds / 3600).toFixed(2)) || c.totalSeconds),
+        backgroundColor: colors.slice(0, channels.length),
+        borderWidth: 0,
+        hoverOffset: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          backgroundColor: '#111827',
+          borderColor: 'rgba(255, 255, 255, 0.1)',
+          borderWidth: 1,
+          callbacks: {
+            label: context => {
+              const item = channels[context.dataIndex];
+              return ` ${item.channelName}: ${formatDuration(item.totalSeconds)}`;
+            }
+          }
+        }
+      },
+      cutout: '70%'
+    }
+  });
+}
+
+// 4. Render Personal Daily Focus Trends Chart
+function renderPersonalTrendsChart(trends) {
+  const ctx = document.getElementById('userTrendChart').getContext('2d');
+  if (chartUserTrend) chartUserTrend.destroy();
+
+  const labels = trends.map(t => t.label);
+  const hours = trends.map(t => t.totalHours);
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, 220);
+  gradient.addColorStop(0, 'rgba(99, 102, 241, 0.5)');
+  gradient.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
+
+  chartUserTrend = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Focus Hours',
+        data: hours,
+        borderColor: '#6366f1',
+        borderWidth: 3,
+        pointBackgroundColor: '#818cf8',
+        pointBorderColor: '#0a0e17',
+        pointBorderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        fill: true,
+        backgroundColor: gradient,
+        tension: 0.35
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#111827',
+          borderColor: 'rgba(99, 102, 241, 0.3)',
+          borderWidth: 1,
+          callbacks: {
+            label: c => ` ${c.parsed.y} hours focused`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: '#64748b', font: { size: 10 } }
+        },
+        y: {
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: {
+            color: '#64748b',
+            font: { size: 10 },
+            callback: v => `${v}h`
+          },
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+// 5. Render Peak Hours (24h) Chart
+function renderPersonalHourlyChart(hourly) {
+  const ctx = document.getElementById('userHourlyChart').getContext('2d');
+  if (chartUserHourly) chartUserHourly.destroy();
+
+  chartUserHourly = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: hourly.map(h => h.label),
+      datasets: [{
+        label: 'Focus Time',
+        data: hourly.map(h => h.totalHours),
+        backgroundColor: 'rgba(139, 92, 246, 0.65)',
+        hoverBackgroundColor: '#8b5cf6',
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#111827',
+          borderColor: 'rgba(139, 92, 246, 0.3)',
+          borderWidth: 1,
+          callbacks: {
+            label: c => ` ${c.parsed.y} hrs`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: '#64748b', font: { size: 8 }, maxTicksLimit: 8 }
+        },
+        y: {
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: { color: '#64748b', font: { size: 8 } },
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+// 6. Render Personal Session History Table
+function renderPersonalSessionsTable(sessions) {
+  const tbody = document.getElementById('user-sessions-table-body');
+
+  if (!sessions || sessions.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">No study sessions logged yet.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = sessions.map(s => `
+    <tr>
+      <td>
+        <span class="channel-tag">🔊 #${escapeHtml(s.channel_name || 'Voice Room')}</span>
+      </td>
+      <td>${formatDate(s.joined_at)}</td>
+      <td>${formatTime(s.joined_at)}</td>
+      <td>${formatTime(s.left_at)}</td>
+      <td>
+        <span class="duration-pill">${formatDuration(s.duration_seconds)}</span>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// 7. Community Leaderboard
+async function fetchLeaderboard(timeframe = 'today') {
+  try {
+    const res = await fetch(`/api/leaderboard?timeframe=${timeframe}`);
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    const container = document.getElementById('leaderboard-container');
+    const leaders = json.data;
+
+    if (leaders.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 1.5rem;">
+          <div class="empty-state-title">No sessions logged for this timeframe</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = leaders.map(u => {
+      let rankBadgeClass = 'rank-regular';
+      let rankContent = `#${u.rank}`;
+      if (u.rank === 1) { rankBadgeClass = 'rank-gold'; rankContent = '🥇'; }
+      else if (u.rank === 2) { rankBadgeClass = 'rank-silver'; rankContent = '🥈'; }
+      else if (u.rank === 3) { rankBadgeClass = 'rank-bronze'; rankContent = '🥉'; }
+
+      const streakTag = u.streak > 0 ? `<span class="streak-pill">🔥 ${u.streak}d streak</span>` : '';
+      const isSelected = u.user_id === selectedUserId ? 'style="border-color: var(--primary); background: var(--bg-surface-elevated);"' : '';
+
+      return `
+        <div class="leader-item" data-user-id="${u.user_id}" ${isSelected} title="Click to view ${escapeHtml(u.display_name)}'s analytics">
+          <div class="rank-badge ${rankBadgeClass}">${rankContent}</div>
+          <img class="leader-avatar" src="${u.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png'}" alt="">
+          <div class="leader-info">
+            <div class="leader-name">${escapeHtml(u.display_name)}</div>
+            <div class="leader-meta">
+              <span>@${escapeHtml(u.username)}</span>
+              ${streakTag ? '<span>•</span> ' + streakTag : ''}
+            </div>
+          </div>
+          <div class="leader-time">
+            <div class="leader-hours">${formatDuration(u.total_seconds)}</div>
+            <div class="leader-sessions-count">${u.session_count} session${u.session_count === 1 ? '' : 's'}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Attach click listeners to switch selected member
+    container.querySelectorAll('.leader-item').forEach(item => {
+      item.addEventListener('click', () => {
+        selectUser(item.dataset.userId);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    });
+
+  } catch (err) {
+    console.error('Error fetching leaderboard:', err);
+  }
+}
+
+// 8. Ticking Digital Timer for active user
+function startLiveTicker() {
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    if (!currentActiveSession) return;
+    const now = Date.now();
+    let elapsedMs = now - currentActiveSession.joinedAt - (currentActiveSession.totalPausedMs || 0);
+    if (currentActiveSession.isPaused && currentActiveSession.pausedAt) {
+      elapsedMs -= (now - currentActiveSession.pausedAt);
+    }
+    const elapsedSec = Math.max(0, Math.floor(elapsedMs / 1000));
+    currentActiveSession.elapsedSeconds = elapsedSec;
+
+    const el = document.getElementById('user-live-timer-val');
+    if (el) {
+      el.textContent = formatDigitalTimer(elapsedSec);
+    }
+  }, 1000);
+}
+
+// 9. Server-Sent Events (SSE) for Real-Time Sync
+function connectSSE() {
+  const eventSource = new EventSource('/api/events');
+
+  eventSource.addEventListener('session_started', e => {
+    try {
+      const data = JSON.parse(e.data);
+      showToast(`${data.user.displayName} joined #${data.user.channelName} 🎧`, '🟢');
+      fetchTrackedUsers();
+      if (data.user.userId === selectedUserId) {
+        loadPersonalDashboard(selectedUserId);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  eventSource.addEventListener('session_ended', e => {
+    try {
+      const data = JSON.parse(e.data);
+      showToast(`${data.user.displayName} finished studying (${data.formattedDuration}) 🎉`, '🔴');
+      fetchTrackedUsers();
+      fetchLeaderboard(currentTimeframe);
+      if (data.user.userId === selectedUserId) {
+        loadPersonalDashboard(selectedUserId);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  });
+}
+
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
-  // Update live date text
-  const dateOptions = { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' };
-  document.getElementById('live-datetime-text').textContent = new Date().toLocaleDateString('en-US', dateOptions);
-
-  // Initial Data Fetches
-  fetchOverview();
-  fetchActiveUsers();
+  // Initial fetch of detected users
+  fetchTrackedUsers();
   fetchLeaderboard('today');
-  fetchTrendsChart();
-  fetchHourlyAndChannelCharts();
-  fetchRecentSessions();
   startLiveTicker();
   connectSSE();
 
-  // Tab switching (Today / Week / Month / All-Time)
-  const tabBtns = document.querySelectorAll('.tab-btn');
-  tabBtns.forEach(btn => {
+  // Navbar dropdown change
+  document.getElementById('nav-user-select').addEventListener('change', e => {
+    selectUser(e.target.value);
+  });
+
+  // Trend Days tab toggle (7, 14, 30 days)
+  document.querySelectorAll('#trend-days-tabs .tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      tabBtns.forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('#trend-days-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentTrendDays = parseInt(btn.dataset.days, 10);
+      if (selectedUserId) {
+        loadPersonalDashboard(selectedUserId);
+      }
+    });
+  });
+
+  // Leaderboard timeframe tabs
+  document.querySelectorAll('#timeframe-tabs .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#timeframe-tabs .tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentTimeframe = btn.dataset.timeframe;
       fetchLeaderboard(currentTimeframe);
     });
   });
 
-  // Search input filter
-  const searchInput = document.getElementById('leaderboard-search-input');
-  searchInput.addEventListener('input', () => {
-    if (window._leaderboardData) {
-      renderLeaderboardList(window._leaderboardData);
+  // Share Profile Link Button
+  document.getElementById('btn-copy-link').addEventListener('click', () => {
+    const url = new URL(window.location);
+    if (selectedUserId) {
+      url.searchParams.set('user', selectedUserId);
     }
+    navigator.clipboard.writeText(url.toString()).then(() => {
+      showToast('Profile link copied to clipboard!', '🔗');
+    }).catch(() => {
+      prompt('Copy your profile URL:', url.toString());
+    });
   });
 
   // Refresh Sync Button
-  const refreshBtn = document.getElementById('btn-refresh');
-  refreshBtn.addEventListener('click', () => {
-    const icon = refreshBtn.querySelector('.spin-on-click');
+  document.getElementById('btn-refresh').addEventListener('click', () => {
+    const icon = document.querySelector('#btn-refresh .spin-on-click');
     if (icon) icon.classList.add('active');
 
     Promise.all([
-      fetchOverview(),
-      fetchActiveUsers(),
+      fetchTrackedUsers(),
       fetchLeaderboard(currentTimeframe),
-      fetchTrendsChart(),
-      fetchHourlyAndChannelCharts(),
-      fetchRecentSessions()
+      selectedUserId ? loadPersonalDashboard(selectedUserId) : Promise.resolve()
     ]).finally(() => {
       setTimeout(() => {
         if (icon) icon.classList.remove('active');
-        showToast('Analytics synced with server', '⚡');
+        showToast('Personal analytics synced!', '⚡');
       }, 500);
     });
   });
 
-  // Modal Closures
-  const userModal = document.getElementById('user-modal');
+  // Guide Modal
   const guideModal = document.getElementById('guide-modal');
-
-  document.getElementById('btn-close-modal').addEventListener('click', () => {
-    userModal.classList.remove('active');
-  });
-
-  document.getElementById('btn-close-guide').addEventListener('click', () => {
-    guideModal.classList.remove('active');
-  });
-
   document.getElementById('btn-bot-guide').addEventListener('click', () => {
     guideModal.classList.add('active');
   });
-
-  window.addEventListener('click', e => {
-    if (e.target === userModal) userModal.classList.remove('active');
-    if (e.target === guideModal) guideModal.classList.remove('active');
+  document.getElementById('btn-close-guide').addEventListener('click', () => {
+    guideModal.classList.remove('active');
   });
-
-  window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      userModal.classList.remove('active');
-      guideModal.classList.remove('active');
-    }
+  window.addEventListener('click', e => {
+    if (e.target === guideModal) guideModal.classList.remove('active');
   });
 });

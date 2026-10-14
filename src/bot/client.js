@@ -53,14 +53,18 @@ function createDiscordBot() {
     try {
       await command.execute(interaction);
     } catch (error) {
-      console.error(`[DiscordBot] Error executing command ${interaction.commandName}:`, error);
+      console.error(`[DiscordBot] Error executing command ${interaction.commandName}:`, error.message);
       const replyObj = { content: 'There was an error while executing this command!', ephemeral: true };
       if (interaction.replied || interaction.deferred) {
-        await interaction.followUp(replyObj);
+        await interaction.followUp(replyObj).catch(() => {});
       } else {
-        await interaction.reply(replyObj);
+        await interaction.reply(replyObj).catch(() => {});
       }
     }
+  });
+
+  client.on('error', err => {
+    console.error('[DiscordBot] Client error:', err.message);
   });
 
   // Handle voice state updates

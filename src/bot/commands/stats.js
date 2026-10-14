@@ -25,6 +25,8 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    await interaction.deferReply().catch(() => {});
+
     const targetUser = interaction.options.getUser('user') || interaction.user;
     const guildId = interaction.guildId;
 
@@ -39,7 +41,7 @@ module.exports = {
 
     if (!stats && !activeSession) {
       embed.setDescription(`No study records found yet for **${targetUser.username}**.\nJoin any study voice channel to start tracking your focus time!`);
-      return interaction.reply({ embeds: [embed] });
+      return interaction.editReply({ embeds: [embed] }).catch(() => {});
     }
 
     // Active status section
@@ -64,6 +66,6 @@ module.exports = {
       { name: '🎧 Favorite Room', value: stats ? stats.favoriteChannel : 'N/A', inline: true }
     );
 
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] }).catch(() => {});
   }
 };

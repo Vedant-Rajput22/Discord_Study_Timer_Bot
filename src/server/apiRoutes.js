@@ -125,7 +125,55 @@ router.get('/sessions', (req, res) => {
   }
 });
 
-// 8. User Profile & stats modal
+// 8. List all tracked users
+router.get('/users', (req, res) => {
+  try {
+    const guildId = req.query.guildId || null;
+    const users = queries.getAllTrackedUsers(guildId);
+    res.json({ success: true, data: users });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 9. Full personalized analytics for a selected user
+router.get('/users/:userId/analytics', (req, res) => {
+  try {
+    const guildId = req.query.guildId || null;
+    const days = parseInt(req.query.days || '14', 10);
+    const userId = req.params.userId;
+
+    const stats = queries.getUserStats(userId, guildId);
+    if (!stats) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const channels = queries.getUserChannelDistribution(userId, guildId);
+    const hourly = queries.getUserHourlyDistribution(userId, guildId);
+    const trends = queries.getUserDailyHistory(userId, days);
+    const sessions = queries.getUserRecentSessions(userId, guildId, 30);
+    const activeSession = tracker.activeSessions.get(userId) || null;
+
+    res.json({
+      success: true,
+      data: {
+        stats,
+        channels,
+        hourly,
+        trends,
+        sessions,
+        activeSession: activeSession ? {
+          ...activeSession,
+          elapsedSeconds: Math.floor((Date.now() - activeSession.joinedAt) / 1000)
+        } : null
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// User Profile & stats modal (legacy support)
 router.get('/users/:userId', (req, res) => {
   try {
     const guildId = req.query.guildId || null;
