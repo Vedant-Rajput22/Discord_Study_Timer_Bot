@@ -335,7 +335,7 @@ function getUserStats(userId, guildId = null) {
     favChannelSql += ` AND guild_id = ?`;
     favParams.push(guildId);
   }
-  favChannelSql += ` GROUP BY channel_id ORDER BY total_seconds DESC LIMIT 1`;
+  favChannelSql += ` GROUP BY channel_name ORDER BY total_seconds DESC LIMIT 1`;
   const favChannel = db.prepare(favChannelSql).get(...favParams) || null;
 
   // Server Rank (All-Time)
@@ -465,7 +465,7 @@ function getChannelDistribution(guildId = null) {
     sql += ` WHERE guild_id = ?`;
     params.push(guildId);
   }
-  sql += ` GROUP BY channel_id ORDER BY total_seconds DESC LIMIT 6`;
+  sql += ` GROUP BY channel_name ORDER BY total_seconds DESC LIMIT 6`;
 
   const rows = db.prepare(sql).all(...params);
   return rows.map(r => ({
@@ -586,7 +586,7 @@ function getUserChannelDistribution(userId, guildId = null) {
     sql += ` AND guild_id = ?`;
     params.push(guildId);
   }
-  sql += ` GROUP BY channel_id ORDER BY total_seconds DESC`;
+  sql += ` GROUP BY channel_name ORDER BY total_seconds DESC`;
 
   const rows = db.prepare(sql).all(...params);
   return rows.map(r => ({
